@@ -1,8 +1,9 @@
 #include "mbed.h"
 #include "SimpleModbus.h"
 
-#include "common_debug.h"
 /*
+#include "common_debug.h"
+
 #ifdef _DEBUG_MODBUS
 #define TAG         "MODBUS"
 #define MODBUS_DEBUG    DEBUGMSG
