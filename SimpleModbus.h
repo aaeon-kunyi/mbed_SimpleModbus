@@ -1,6 +1,5 @@
 #ifndef SIMPLE_MODBUS_MASTER_H
 #define SIMPLE_MODBUS_MASTER_H
-
 // SimpleModbusMasterV12
 
 /*
@@ -123,9 +122,9 @@ void modbus_construct(Packet *_packet,
                       unsigned int data,
                       unsigned int* register_array);
 
-void modbus_configure(long baudrate,
-					  unsigned int _timeout,
-                      unsigned int _polling,
+void modbus_configure(long _baudrate,
+                      int _timeout,
+                      int _polling,
                       unsigned char _retry_count,
                       Packet* _packets,
                       unsigned int _total_no_of_packets);

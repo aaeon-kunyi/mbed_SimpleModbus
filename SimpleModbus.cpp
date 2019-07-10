@@ -1,34 +1,21 @@
 #include "mbed.h"
 #include "SimpleModbus.h"
-
-/*
-#include "common_debug.h"
-
-#ifdef _DEBUG_MODBUS
-#define TAG         "MODBUS"
-#define MODBUS_DEBUG    DEBUGMSG
-#define MODBUS_DUMP     DEBUGMSG_DUMP
-#else
-#define MODBUS_DEBUG
-#define MODBUS_DUMP
-#endif //_DEBUG_MODBUS
-*/
-
+// #define _DEBUG_MODBUS (1)
 #ifdef _DEBUG_MODBUS
 #include "mbed_trace.h"
 #define TRACE_GROUP     "modbus"
 #define MODBUS_DEBUG    tr_debug
-
-#define DEBUGMSG_DUMP(str, i, size, buff)       \
-                do{ printf("[%s:%s:%d]: "str"[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, size); \
-                    for(i=0; i<size; i++) \
+#define DEBUGMSG_DUMP(str, size, buff)       \
+                do { int i; \
+                    printf("[%s:%s:%d]: "str"[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, size); \
+                    for(i = 0; i < size; i++) \
                         printf("%02x ", buff[i]); \
-                    printf("\r\n"); } while (0)
+                    printf("\n"); } while (0)
                     
 #define MODBUS_DUMP     DEBUGMSG_DUMP
 #else
 #define MODBUS_DEBUG
-#define DEBUGMSG_DUMP(str, i, size, buff)
+#define DEBUGMSG_DUMP(str, size, buff)
 #define MODBUS_DUMP
 #endif
 
@@ -40,16 +27,14 @@
 #define DONE                    4
 #define INVALID                 5
 
-
-#define BUFFER_SIZE 64
+#define BUFFER_SIZE 100
 
 Timer ModBusTimer;
-//Serial ModbusPort(MODBUS_TX, MODBUS_RX);
-UARTSerial ModbusPort(MODBUS_TX, MODBUS_RX);
+UARTSerial ModbusPort(MODBUS_TX, MODBUS_RX, 9600);
 
 
-unsigned char state;
-unsigned char retry_count;
+static unsigned char state;
+static unsigned char retry_count;
 
 static unsigned int packet_index;
 
@@ -59,8 +44,8 @@ static unsigned int packet_index;
 // This is limited to the serial buffer of 64 bytes
 unsigned char frame[BUFFER_SIZE];
 unsigned char buffer;
-unsigned int timeout; // timeout interval
-unsigned int polling; // turnaround delay interval
+int timeout; // timeout interval
+int polling;          // turnaround delay interval
 unsigned int T1_5; // inter character time out in microseconds
 unsigned int T3_5; // frame delay in microseconds
 unsigned int total_no_of_packets;
@@ -86,8 +71,6 @@ static void sendPacket(unsigned char bufferSize);
 // Modbus Master State Machine
 void Modbus_Get(Packet *pkg)
 {
-    int tmp;
-    
     state = IDLE;
     while(state != INVALID)
     {
@@ -103,11 +86,16 @@ void Modbus_Get(Packet *pkg)
                 waiting_for_turnaround();
                 break;
             case DONE:
-                //do{ printf("[%s:%s:%d]: %s[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, "rx", packet->data_rcv);
-                //  if(packet->data_rcv > 0)
-                //      for(tmp=0; tmp<packet->data_rcv; tmp++)
-                //          printf("%04x ", packet->register_array[tmp]);
-                //  printf("\r\n"); } while (0);
+                #ifdef _DEBUG_MODBUS
+                do{ unsigned tmp;
+                    printf("[%s:%s:%d]: %s[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, "rx", packet->data_rcv);
+                    if (packet->data_rcv > 0)
+                      for (tmp = 0; tmp < packet->data_rcv; tmp++)
+                         printf("%04x ", packet->register_array[tmp]);
+                    printf("\n");
+                } while (0);
+                #endif
+
                 packet_index++;
                 state = INVALID;
                 break;
@@ -118,69 +106,9 @@ void Modbus_Get(Packet *pkg)
     
 }
 
-#if 0
-unsigned char modbus_update()
-{
-    switch (state) {
-        case IDLE:
-            idle();
-            break;
-        case WAITING_FOR_REPLY:
-            waiting_for_reply();
-            break;
-        case WAITING_FOR_TURNAROUND:
-            waiting_for_turnaround();
-            break;
-        case DONE:
-            packet_index++;
-            state = INVALID;
-            break;
-        case INVALID:
-            break;
-    }
-    return state;
-}
-
-void idle()
-{
-    //static unsigned int packet_index;
-
-    unsigned int failed_connections = 0;
-
-    unsigned char current_connection;
-
-    MODBUS_DEBUG("idle");
-
-    do {
-        if (packet_index >= total_no_of_packets) // wrap around to the beginning
-            packet_index = 0;
-
-        // proceed to the next packet
-        packet = &packetArray[packet_index];
-
-        // get the current connection status
-        current_connection = packet->connection;
-
-        if (!current_connection) {
-            // If all the connection attributes are false return
-            // immediately to the main sketch
-            if (++failed_connections == total_no_of_packets)
-                return;
-        }
-        //packet_index++;
-
-        // if a packet has no connection get the next one
-    } while (!current_connection);
-
-    constructPacket();
-}
-#endif
-
 void constructPacket()
 {
-    int tmp;
     MODBUS_DEBUG("constructPacket");
-
     packet->data_rcv = 0;
     
     packet->requests++;
@@ -193,7 +121,6 @@ void constructPacket()
     // For function 15 data is the number of coils
     frame[4] = packet->data >> 8; // MSB
     frame[5] = packet->data & 0xFF; // LSB
-
 
     unsigned char frameSize;
 
@@ -211,10 +138,11 @@ void constructPacket()
 
     //MODBUS_DUMP("rx", tmp, frameSize, frame);
     #ifdef _DEBUG_MODBUS
-    do{ printf("[%s:%s:%d]: %s[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, "tx", buffer);
+    do{ int tmp;
+        printf("[%s:%s:%d]: %s[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, "tx", buffer);
         for(tmp=0; tmp<frameSize; tmp++)
             printf("%02x ", frame[tmp]);
-        printf("\r\n"); } while (0);
+        printf("\n"); } while (0);
     #endif
                     
     sendPacket(frameSize);
@@ -285,15 +213,14 @@ unsigned char construct_F16()
 static uint8_t wait_turn_around_display = 0;
 void waiting_for_turnaround()
 {
-    int tmp;
     if(!wait_turn_around_display)
     {
-        //MODBUS_DUMP("rx", tmp, buffer, frame);
         #ifdef _DEBUG_MODBUS
-        do{ printf("[%s:%s:%d]: %s[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, "rx", buffer);
+        do{ int tmp;
+            printf("[%s:%s:%d]: %s[%d]: ", TRACE_GROUP, __FUNCTION__, __LINE__, "rx", buffer);
             for(tmp=0; tmp<buffer; tmp++)
                 printf("%02x ", frame[tmp]);
-            printf("\r\n"); } while (0);
+            printf("\n"); } while (0);
         #endif
             
         MODBUS_DEBUG("waiting_for_turnaround");
@@ -310,86 +237,66 @@ void waiting_for_turnaround()
 // get the serial data from the buffer
 void waiting_for_reply()
 {
-    //MODBUS_DEBUG("waiting_for_reply");
-    
-    //if (ModbusPort.readable()) { // is there something to check?
-        unsigned char overflowFlag = 0;
-        buffer = 0;
+    MODBUS_DEBUG("waiting_for_reply");
+    unsigned char overflowFlag = 0;
+    unsigned char byte;
+    uint8_t lateProcessing = 20;
+    buffer = 0;
 
-        unsigned char byte;
-        //while (ModbusPort.readable()) {
-        do {
-            /*
-            if (ModbusPort.readable()) { // is there something to check?
-                // The maximum number of bytes is limited to the serial buffer size
-                // of BUFFER_SIZE. If more bytes is received than the BUFFER_SIZE the
-                // overflow flag will be set and the serial buffer will be read until
-                // all the data is cleared from the receive buffer, while the slave is
-                // still responding.
-                if (overflowFlag)
-                    ModbusPort.getc();
-                else {
-                    if (buffer == BUFFER_SIZE)
-                        overflowFlag = 1;
-
-                    frame[buffer] = ModbusPort.getc();
-                    buffer++;
-                }
-            }*/
-            if(ModbusPort.read(&byte, 1))
-            {
-                if (!overflowFlag) {
-                    if (buffer == BUFFER_SIZE)
-                        overflowFlag = 1;
-
-                    frame[buffer] = byte;
-                    buffer++;
-                }
-            }
-            
-            // This is not 100% correct but it will suffice.
-            // worst case scenario is if more than one character time expires
-            // while reading from the buffer then the buffer is most likely empty
-            // If there are more bytes after such a delay it is not supposed to
-            // be received and thus will force a frame_error.
-            //wait_ms(T1_5); // inter character time out // sophie mark
-
-            if(buffer >= 5)
-            {
-                // combine the crc Low & High bytes
-                unsigned int received_crc = ((frame[buffer - 2] << 8) | frame[buffer - 1]);
-                unsigned int calculated_crc = calculateCRC(buffer - 2);
-                if (calculated_crc == received_crc) // verify checksum
-                {
-                    MODBUS_DEBUG("frame end");
-                    break;
-                }
-            }
-        } while(ModBusTimer.read_ms() < timeout);
-
-        // The minimum buffer size from a slave can be an exception response of
-        // 5 bytes. If the buffer was partially filled set a frame_error.
-        // The maximum number of bytes in a modbus packet is 256 bytes.
-        // The serial buffer limits this to 128 bytes.
-
-        if ((buffer < 5) || overflowFlag)
+    do {
+        if(ModbusPort.readable() && ModbusPort.read(&byte, 1))
         {
-            MODBUS_DEBUG("buffer=%d<5, or overflow=%d", buffer, overflowFlag);
-            processError();
+            if (!overflowFlag) {
+                if (buffer == BUFFER_SIZE)
+                    overflowFlag = 1;
+
+                frame[buffer] = byte;
+                buffer++;
+            }
         }
 
-        // Modbus over serial line datasheet states that if an unexpected slave
-        // responded the master must do nothing and continue with the time out.
-        // This seems silly cause if an incorrect slave responded you would want to
-        // have a quick turnaround and poll the right one again. If an unexpected
-        // slave responded it will most likely be a frame error in any event
-        else if (frame[0] != packet->id) // check id returned
-        {
-            MODBUS_DEBUG("frame[0]=%d != id=%d", frame[0], packet->id);
-            processError();
+        // This is not 100% correct but it will suffice.
+        // worst case scenario is if more than one character time expires
+        // while reading from the buffer then the buffer is most likely empty
+        // If there are more bytes after such a delay it is not supposed to
+        // be received and thus will force a frame_error.
+        // wait_ms(T1_5); // inter character time out // sophie mark
+        if((lateProcessing-- <= 0) &&
+            buffer >= 5) {
+            // combine the crc Low & High bytes
+            unsigned int received_crc = ((frame[buffer - 2] << 8) | frame[buffer - 1]);
+            unsigned int calculated_crc = calculateCRC(buffer - 2);
+            if (calculated_crc == received_crc) // verify checksum
+            {
+                MODBUS_DEBUG("frame end");
+                break;
+            }
         }
-        else
-            processReply();
+    } while(ModBusTimer.read_ms() < timeout);
+
+    // The minimum buffer size from a slave can be an exception response of
+    // 5 bytes. If the buffer was partially filled set a frame_error.
+    // The maximum number of bytes in a modbus packet is 256 bytes.
+    // The serial buffer limits this to 128 bytes.
+
+    if ((buffer < 5) || overflowFlag)
+    {
+        MODBUS_DEBUG("buffer=%d<5, or overflow=%d", buffer, overflowFlag);
+        processError();
+    }
+
+    // Modbus over serial line datasheet states that if an unexpected slave
+    // responded the master must do nothing and continue with the time out.
+    // This seems silly cause if an incorrect slave responded you would want to
+    // have a quick turnaround and poll the right one again. If an unexpected
+    // slave responded it will most likely be a frame error in any event
+    else if (frame[0] != packet->id) // check id returned
+    {
+        MODBUS_DEBUG("frame[0]=%d != id=%d", frame[0], packet->id);
+        processError();
+    }
+    else
+        processReply();
     /*} else 
     if (ModBusTimer.read_ms() > timeout) { // check timeout
         MODBUS_DEBUG("timeout: %d", ModBusTimer.read_ms());
@@ -402,7 +309,6 @@ void waiting_for_reply()
 void processReply()
 {
     MODBUS_DEBUG("processReply");
-    
     // combine the crc Low & High bytes
     unsigned int received_crc = ((frame[buffer - 2] << 8) | frame[buffer - 1]);
     unsigned int calculated_crc = calculateCRC(buffer - 2);
@@ -526,9 +432,9 @@ void processSuccess()
     ModBusTimer.start(); // start the turnaround delay
 }
 
-void modbus_configure(long baudrate,
-                      unsigned int _timeout,
-                      unsigned int _polling,
+void modbus_configure(long _baudrate,
+                      int _timeout,
+                      int _polling,
                       unsigned char _retry_count,
                       Packet* _packets,
                       unsigned int _total_no_of_packets)
@@ -546,15 +452,15 @@ void modbus_configure(long baudrate,
 
 
     //T1_5 = 750;
-    if (baudrate > 19200)
+    if (_baudrate > 19200)
     {
         T1_5 = 750; 
         T3_5 = 1750; 
     }
     else 
     {
-        T1_5 = 15000000/baudrate; // 1T * 1.5 = T1.5
-        T3_5 = 35000000/baudrate; // 1T * 3.5 = T3.5
+        T1_5 = 15000000/_baudrate; // 1T * 1.5 = T1.5
+        T3_5 = 35000000/_baudrate; // 1T * 3.5 = T3.5
     }
 
     // initialize
@@ -564,12 +470,9 @@ void modbus_configure(long baudrate,
     retry_count = _retry_count;
     total_no_of_packets = _total_no_of_packets;
     packetArray = _packets;
-    
-    //ModbusPort.baud(baudrate);
-    //ModbusPort.format(8,SerialBase::None,1);
-    
-    ModbusPort.set_baud(baudrate);
-    ModbusPort.set_format(8,SerialBase::None,1);
+
+    ModbusPort.set_baud(_baudrate);
+    ModbusPort.set_format(8, SerialBase::Even, 1);
 
     memset(frame, 0, BUFFER_SIZE);
 }
@@ -618,7 +521,7 @@ void sendPacket(unsigned char bufferSize)
     //    ModbusPort.putc(frame[i]);
     ModbusPort.write(frame, bufferSize);
 
-    ///ModbusPort.flush();
+    //ModbusPort.sync();
 
     // It may be necessary to add a another character delay T1_5 here to
     // avoid truncating the message on slow and long distance connections
